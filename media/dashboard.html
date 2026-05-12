@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} data:; style-src 'unsafe-inline'; script-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none';">
+<title>Copilot Cost & Token Tracker Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface2: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb33;
+  --green: #3fb950;
+  --green-dim: #23863633;
+  --yellow: #c8c200;
+  --yellow-dim: #c8c20033;
+  --red: #f85149;
+  --gold: #e3b341;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.container { max-width: 1280px; margin: 0 auto; padding: 24px; overflow-x: auto; }
+
+/* Header */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  overflow-x: auto;
+  gap: 12px;
+}
+header h1 { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+header h1 .icon { display: inline-flex; align-items: center; }
+.controls { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.controls label { font-size: 13px; color: var(--text-muted); }
+.controls select, .controls input {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.controls select:focus, .controls input:focus { outline: none; border-color: var(--accent); }
+/* Date inputs — force readable colors regardless of OS theme */
+input[type="date"] {
+  color-scheme: dark;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: var(--font);
+}
+.btn {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--accent); color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+.btn-icon svg { width: 10px; height: 10px; fill: currentColor; }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+.card-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.card-value { font-size: 24px; font-weight: 600; font-family: var(--mono); }
+.card-value.cost { color: var(--gold); }
+.card-value.tokens { color: var(--accent); }
+.card-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+/* Table */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+  margin-bottom: 24px;
+}
+.table-title {
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody tr { cursor: pointer; transition: background 0.1s; }
+tbody tr:hover { background: var(--surface2); }
+tbody td { padding: 10px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.text-right { text-align: right; }
+.text-muted { color: var(--text-muted); }
+.text-green  { color: var(--green); }
+.text-accent { color: var(--accent); }
+.text-yellow { color: var(--yellow); }
+.text-red    { color: var(--red); }
+.text-gold   { color: var(--gold); }
+/* sortable table headers */
+thead th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+thead th.sortable:hover { color: var(--text); }
+.sort-icon { opacity: 0.35; font-size: 10px; margin-left: 3px; }
+thead th.sort-asc .sort-icon::after  { content: ' ↑'; opacity: 1; }
+thead th.sort-desc .sort-icon::after { content: ' ↓'; opacity: 1; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.badge-blue { background: var(--accent-dim); color: var(--accent); }
+.badge-green { background: var(--green-dim); color: var(--green); }
+.badge-gray { background: #8b949e22; color: var(--text-muted); }
+
+/* Detail panel */
+.detail-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-title { font-size: 16px; font-weight: 600; }
+.detail-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 4px;
+}
+.detail-meta-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+.model-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 16px;
+}
+.model-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.model-card-subagent {
+  border-color: #8b949e44;
+}
+.model-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.model-name { font-weight: 600; font-size: 14px; }
+.model-cost { font-family: var(--mono); font-size: 16px; color: var(--gold); font-weight: 600; }
+.token-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.token-row .label { color: var(--text-muted); }
+.token-row .value { font-family: var(--mono); }
+
+/* Progress bar */
+.progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.progress-fill.green  { background: var(--green); }
+.progress-fill.yellow { background: var(--yellow); }
+.progress-fill.red    { background: var(--red); }
+.progress-fill.accent { background: var(--accent); }
+
+/* Loading / Empty */
+.loading, .empty {
+  text-align: center;
+  padding: 48px;
+  color: var(--text-muted);
+}
+.spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .model-breakdown { grid-template-columns: 1fr; }
+  header { flex-direction: column; gap: 12px; }
+}
+
+/* Aggregate cards: single row on wide screens; 2+4 split on narrow */
+.cards.cards-agg { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1300px) {
+  .cards.cards-agg { grid-template-columns: repeat(4, 1fr); }
+  .cards.cards-agg .card:nth-child(1),
+  .cards.cards-agg .card:nth-child(2) { grid-column: span 2; }
+}
+
+/* View toggling */
+.view { display: none; }
+.view.active { display: block; }
+
+/* Session row highlight */
+tbody tr.selected { background: var(--accent-dim); }
+/* Inline detail expansion */
+.detail-row > td { padding: 8px 12px; background: var(--surface2); border-top: 2px solid var(--accent); }
+.detail-row .detail-panel { margin-bottom: 0; border-radius: 6px; }
+.row-toggle { display: inline-block; width: 14px; color: var(--text-muted); font-size: 11px; user-select: none; transition: transform 0.15s; }
+
+/* Deep Dive table */
+.dd-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; margin-top: 8px; }
+.dd-turn-row td { border-bottom: 1px solid var(--border); padding: 9px 14px; }
+.dd-call-row td { border-bottom: 1px solid var(--border); padding: 7px 14px; }
+.dd-call-row:last-child td, .dd-turn-row:last-child td { border-bottom: none; }
+.dd-turn-row:hover { filter: brightness(1.08); }
+.dd-call-row:hover { background: var(--surface2) !important; }
+.dd-arrow { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; font-size: 12px; color: var(--text-muted); user-select: none; border-radius: 4px; transition: background 0.12s, transform 0.15s; }
+.dd-turn-row:hover .dd-arrow { background: var(--accent-dim); color: var(--accent); }
+.dd-arrow.open { transform: rotate(90deg); }
+.dd-user-msg { display: block; font-size: 11px; font-weight: 400; color: var(--text-muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.dd-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.dd-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.dd-toolbar-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; transition: all 0.12s; }
+.dd-toolbar-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dd-call-count { display: inline-flex; align-items: center; justify-content: center; background: var(--accent-dim); color: var(--accent); border-radius: 10px; font-size: 10px; font-weight: 600; min-width: 20px; height: 18px; padding: 0 6px; margin-left: 6px; }
+.dd-trigger-btn { display: inline-flex; align-items: center; }
+.dd-trigger-icon { display: inline-flex; align-items: center; justify-content: center; width: 10px; height: 10px; margin-right: 6px; flex: 0 0 auto; }
+.dd-trigger-icon svg { width: 100%; height: 100%; fill: currentColor; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="icon"><img src="{{iconUri}}" width="18" height="18" alt="" aria-hidden="true"></span> Copilot Cost & Token Tracker</h1>
+  <div class="controls">
+    <label for="hours-select">Time window:</label>
+    <select id="hours-select">
+      <option value="6">6 hours</option>
+      <option value="12" selected>12 hours</option>
+      <option value="24">24 hours</option>
+      <option value="48">48 hours</option>
+      <option value="72">72 hours</option>
+      <option value="168">7 days</option>
+      <option value="720">30 days</option>
+      <option value="mtd">This month</option>
+      <option value="custom">Custom range…</option>
+    </select>
+    <span id="custom-range" style="display:none;align-items:center;gap:6px">
+      <input type="date" id="date-from">
+      <span style="color:var(--text-muted);font-size:12px">to</span>
+      <input type="date" id="date-to">
+    </span>
+    <button class="btn" id="refresh-btn">↻ Refresh</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-view="latest">Latest Session</div>
+    <div class="tab" data-view="sessions">All Sessions</div>
+    <div class="tab" data-view="aggregate">Aggregate</div>
+  </div>
+
+  <!-- Latest Session View -->
+  <div class="view active" id="view-latest">
+    <div id="latest-loading" class="loading"><div class="spinner"></div><div>Loading latest session…</div></div>
+    <div id="latest-content" style="display:none;"></div>
+  </div>
+
+  <!-- Sessions List View -->
+  <div class="view" id="view-sessions">
+    <div id="sessions-loading" class="loading"><div class="spinner"></div><div>Loading sessions…</div></div>
+    <div id="sessions-content" style="display:none;"></div>
+    <div id="session-detail" style="display:none;"></div>
+  </div>
+
+  <!-- Aggregate View -->
+  <div class="view" id="view-aggregate">
+    <div id="agg-loading" class="loading"><div class="spinner"></div><div>Calculating aggregate costs…</div></div>
+    <div id="agg-content" style="display:none;"></div>
+  </div>
+</div>
+
+<script nonce="{{nonce}}">
+// ─── VS Code API ──────────────────────────────────────────────────────
+const vscode = acquireVsCodeApi();
+let _reqId = 0;
+const _pending = new Map();
+
+function rpc(type, params = {}) {
+  return new Promise((resolve, reject) => {
+    const requestId = ++_reqId;
+    _pending.set(requestId, { resolve, reject });
+    vscode.postMessage({ type, requestId, ...params });
+  });
+}
+
+window.addEventListener('message', event => {
+  const msg = event.data;
+  if (!msg.requestId) return;
+  const p = _pending.get(msg.requestId);
+  if (!p) return;
+  _pending.delete(msg.requestId);
+  if (msg.type === 'error') {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(msg.data);
+  }
+});
+
+// ─── Helpers ───────────────────────────────────────────────────────────
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function cssEscape(value) {
+  if (window.CSS && typeof CSS.escape === 'function') {
+    return CSS.escape(String(value));
+  }
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
+function shorten(value, maxLength) {
+  const text = String(value ?? '');
+  return text.length > maxLength ? text.slice(0, maxLength - 1) + '…' : text;
+}
+
+function fmt(n) { return n.toLocaleString(); }
+function fmtCost(n) { return '$' + n.toFixed(4); }
+function fmtCostFull(n) { return '$' + n.toFixed(6); }
+function fmtCredits(cost) { return (cost * 100).toFixed(2); }
+function pct(a, b) { return b ? (100 * a / b).toFixed(1) + '%' : '0%'; }
+
+function getHours() { return parseInt($('#hours-select').value, 10); }
+
+function getTimeParams() {
+  const sel = $('#hours-select').value;
+  if (sel === 'custom') {
+    const from = $('#date-from').value;
+    const to   = $('#date-to').value;
+    if (from && to) {
+      const fromTs = new Date(from).getTime();
+      const toTs   = new Date(to).getTime() + 86400000 - 1;
+      return { from_ts: fromTs, to_ts: toTs };
+    }
+  }
+  if (sel === 'mtd') {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    return { from_ts: startOfMonth, to_ts: Date.now() };
+  }
+  return { hours: parseInt(sel, 10) || 12 };
+}
+
+// ─── Rendering helpers ─────────────────────────────────────────────────
+// Cache health: traffic-light scale (separate semantic from cost colours)
+function cacheHealthClass(ratio) {
+  if (ratio > 90) return 'text-green';
+  if (ratio >= 70) return 'text-yellow';
+  return 'text-red';
+}
+function cacheBarClass(ratio) {
+  if (ratio > 90) return 'green';
+  if (ratio >= 70) return 'yellow';
+  return 'red';
+}
+
+function renderSummaryCards(totals, cls = 'cards') {
+  return `
+    <div class="${cls}">
+      <div class="card">
+        <div class="card-label">Total Cost</div>
+        <div class="card-value text-gold">${fmtCost(totals.cost)}</div>
+        <div class="card-sub">${fmtCostFull(totals.cost)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">AI Credits</div>
+        <div class="card-value text-gold">${fmtCredits(totals.cost)}</div>
+        <div class="card-sub">1 credit = $0.01 USD</div>
+      </div>
+      <div class="card">
+        <div class="card-label">LLM Calls</div>
+        <div class="card-value">${fmt(totals.calls)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Input Tokens</div>
+        <div class="card-value">${fmt(totals.input_tokens)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Output Tokens</div>
+        <div class="card-value">${fmt(totals.output_tokens)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Cache Hit</div>
+        <div class="card-value ${cacheHealthClass(totals.cache_ratio)}">${totals.cache_ratio}%</div>
+        <div class="card-sub">${fmt(totals.cached_tokens)} cached tokens</div>
+      </div>
+    </div>`;
+}
+
+function renderModelBreakdown(models) {
+  if (!models.length) return '<div class="empty">No model data</div>';
+  return `
+    <div class="model-breakdown">
+      ${models.filter(m => !m.warning).map(m => {
+        const cacheRatio = m.input_tokens ? (100 * m.cached_tokens / m.input_tokens) : 0;
+        const isSubagentOnly = m.main_calls === 0 && m.subagent_calls > 0;
+        const isMixed       = m.main_calls > 0  && m.subagent_calls > 0;
+        const subagentBadge = isSubagentOnly
+          ? `<span class="badge badge-gray" title="All calls came from sub-agent runs">sub-agent</span>`
+          : isMixed
+          ? `<span class="badge badge-gray" title="${m.subagent_calls} of ${m.calls} calls came from sub-agent runs">sub-agent ×${m.subagent_calls}</span>`
+          : '';
+        const callsLine = isSubagentOnly
+          ? `${m.vendor} · ${m.calls} call${m.calls!==1?'s':''} · sub-agent only`
+          : isMixed
+          ? `${m.vendor} · ${m.main_calls} main + ${m.subagent_calls} sub-agent`
+          : `${m.vendor} · ${m.calls} call${m.calls!==1?'s':''}`;
+        return `
+        <div class="model-card${isSubagentOnly ? ' model-card-subagent' : ''}">
+          <div class="model-card-head">
+            <div>
+              <div class="model-name">${escapeHtml(m.model)} ${subagentBadge}</div>
+              <div class="text-muted" style="font-size:11px">${escapeHtml(callsLine)}</div>
+            </div>
+            <div class="model-cost">${fmtCost(m.cost)}</div>
+          </div>
+          <div class="token-row"><span class="label">Fresh input</span><span class="value">${fmt(m.fresh_input)}</span></div>
+          <div class="token-row"><span class="label">Cached input${m.cache_assumed?' (est.)':''}</span><span class="value">${fmt(m.cached_tokens)}</span></div>
+          ${m.has_cache_write ? `<div class="token-row"><span class="label">Cache write</span><span class="value">${fmt(m.cache_write_tokens)}</span></div>` : ''}
+          <div class="token-row"><span class="label">Output</span><span class="value">${fmt(m.output_tokens)}</span></div>
+          <div class="token-row" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px"><span class="label">Cache hit rate</span><span class="value ${cacheHealthClass(cacheRatio)}">${cacheRatio.toFixed(1)}%</span></div>
+          <div class="progress-bar"><div class="progress-fill ${cacheBarClass(cacheRatio)}" style="width:${Math.min(cacheRatio,100)}%"></div></div>
+          ${m.user_turns ? `<div class="token-row" style="margin-top:6px"><span class="label">User turns</span><span class="value">${m.user_turns}</span></div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function renderSessionDetail(data) {
+  const s = data.session;
+  return `
+    <div class="detail-panel">
+      <div class="detail-header">
+        <div style="flex:1;min-width:0">
+          <div class="detail-title" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px">
+            <span>${escapeHtml(s.session_title || 'Untitled Session')}</span>
+            <span class="text-muted" style="font-size:13px;font-weight:400">|</span>
+            <span class="mono text-muted" style="font-size:12px;font-weight:400">session id: ${escapeHtml(s.id)}</span>
+          </div>
+          <div class="detail-meta-row">
+            <span><span style="color:var(--text-muted)">last active:</span> ${escapeHtml(s.last_date || s.date)}</span>
+            <span style="color:var(--text-muted)">|</span>
+            <span><span style="color:var(--text-muted)">started:</span> ${escapeHtml(s.date)}</span>
+            <span style="color:var(--text-muted)">|</span>
+            <span><span style="color:var(--text-muted)">workspace:</span> ${escapeHtml(s.workspace_name)}</span>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:16px">
+          <div class="card-value text-gold" style="font-size:20px">${fmtCost(data.totals.cost)}</div>
+          <div class="card-sub" style="color:var(--gold);margin-top:2px">${fmtCredits(data.totals.cost)} credits</div>
+          <div style="margin-top:8px">
+            <button class="btn btn-sm dd-trigger-btn" data-dd-session="${escapeHtml(s.id)}" title="Deep dive analysis for all user turn requests and internal system calls" aria-label="Deep dive analysis for all user turn requests and internal system calls">
+              <span class="dd-trigger-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path d="M2 12.25A.75.75 0 0 1 2.75 11.5h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 12.25Zm1-2.5V6.75a.75.75 0 0 1 1.5 0v3a.75.75 0 0 1-1.5 0Zm3-1.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v1.75a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75V8Zm3-2.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-4.5Zm3-1.5a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v6a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-6Z"/>
+                </svg>
+              </span>
+              <span>Analysis</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      ${renderSummaryCards(data.totals)}
+      <div style="margin-top:16px">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Model Breakdown</h3>
+        ${renderModelBreakdown(data.models)}
+      </div>
+      <div id="deep-dive-${escapeHtml(s.id)}" style="margin-top:16px"></div>
+    </div>`;
+}
+
+// ─── View: Latest ──────────────────────────────────────────────────────
+let _latestAutoRefreshTimer = null;
+let _latestSessionId = null;
+
+function _clearLatestAutoRefresh() {
+  if (_latestAutoRefreshTimer) { clearInterval(_latestAutoRefreshTimer); _latestAutoRefreshTimer = null; }
+}
+
+async function loadLatest() {
+  _clearLatestAutoRefresh();
+  _latestSessionId = null;
+  const loading = $('#latest-loading');
+  const content = $('#latest-content');
+  loading.style.display = '';
+  content.style.display = 'none';
+  try {
+    const data = await rpc('getLatest', getTimeParams());
+    _latestSessionId = data.session?.id;
+    content.innerHTML = renderSessionDetail(data);
+    content.style.display = '';
+    // Auto-refresh the SAME session while it has no title or is < 5 min old
+    const ageMs = Date.now() - (data.session?.ts || 0);
+    const noTitle = !data.session?.session_title || data.session.session_title === 'untitled';
+    if (_latestSessionId && (noTitle || ageMs < 5 * 60 * 1000)) {
+      _latestAutoRefreshTimer = setInterval(async () => {
+        if (currentView !== 'latest' || !_latestSessionId) { _clearLatestAutoRefresh(); return; }
+        try {
+          const fresh = await rpc('getSession', { sessionId: _latestSessionId });
+          $('#latest-content').innerHTML = renderSessionDetail(fresh);
+          const stillNew = !fresh.session?.session_title || fresh.session.session_title === 'untitled'
+            || (Date.now() - (fresh.session?.ts || 0)) < 5 * 60 * 1000;
+          if (!stillNew) { _clearLatestAutoRefresh(); }
+        } catch { _clearLatestAutoRefresh(); }
+      }, 15_000);
+    }
+  } catch (e) {
+    content.innerHTML = `<div class="empty">${escapeHtml((e && e.message) || String(e))}</div>`;
+    content.style.display = '';
+  }
+  loading.style.display = 'none';
+}
+
+// ─── View: Sessions List ───────────────────────────────────────────────
+let sessionsCache = [];
+let sortState = { col: 'last', dir: 1 };
+let openSessionId = null;
+
+const COL_DEFS = [
+  { key: 'toggle',     label: '',             sortable: false, style: 'width:28px' },
+  { key: 'last',       label: 'Last Active',  sortable: true  },
+  { key: 'workspace',  label: 'Workspace',    sortable: true  },
+  { key: 'title',      label: 'Title',        sortable: true  },
+  { key: 'id',         label: 'Session ID',   sortable: false },
+  { key: 'cost',       label: 'Cost',         sortable: true  },
+  { key: 'credits',    label: 'Credits',      sortable: true  },
+  { key: 'cache',      label: 'Cache',        sortable: true, style: 'text-align:center' },
+];
+
+function sortedSessions() {
+  const { col, dir } = sortState;
+  return [...sessionsCache].sort((a, b) => {
+    let av, bv;
+    switch (col) {
+      case 'last':      av = a.last_ts || a.ts;                  bv = b.last_ts || b.ts;                  break;
+      case 'workspace': av = (a.workspace_name||'').toLowerCase(); bv = (b.workspace_name||'').toLowerCase(); break;
+      case 'title':     av = (a.session_title||'').toLowerCase();  bv = (b.session_title||'').toLowerCase();  break;
+      case 'cost':      av = a._cost ?? -1;                      bv = b._cost ?? -1;                      break;
+      case 'credits':   av = a._cost ?? -1;                      bv = b._cost ?? -1;                      break;
+      case 'cache':     av = a._cache ?? -1;                     bv = b._cache ?? -1;                     break;
+      default:          av = a.last_ts || a.ts;                  bv = b.last_ts || b.ts;
+    }
+    if (av < bv) return dir;
+    if (av > bv) return -dir;
+    return 0;
+  });
+}
+
+function renderCacheSquare(s) {
+  if (s._cache == null) return '·';
+  const colorMap = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--red)' };
+  const color = colorMap[cacheBarClass(s._cache)] || 'var(--text-muted)';
+  return `<span title="${s._cache.toFixed(1)}%" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color}"></span>`;
+}
+
+function renderSessionsTbody(sorted) {
+  return sorted.map(s => `
+    <tr data-id="${escapeHtml(s.id)}">
+      <td style="text-align:center"><span class="row-toggle">&#9654;</span></td>
+      <td class="mono">${escapeHtml(s.last_date || s.date)}</td>
+      <td><span class="badge badge-blue">${escapeHtml(s.workspace_name)}</span></td>
+      <td>${escapeHtml(s.session_title.length > 40 ? s.session_title.slice(0,39)+'…' : s.session_title)}</td>
+      <td class="mono text-muted">${escapeHtml(s.id.slice(0,8))}…</td>
+      <td class="mono cost-cell" data-id="${escapeHtml(s.id)}" style="color:var(--gold)">${s._cost != null ? '$'+s._cost.toFixed(4) : '…'}</td>
+      <td class="mono credit-cell" data-id="${escapeHtml(s.id)}" style="color:var(--gold)">${s._cost != null ? fmtCredits(s._cost) : '…'}</td>
+      <td class="cache-cell" data-id="${escapeHtml(s.id)}" style="text-align:center">${renderCacheSquare(s)}</td>
+    </tr>`).join('');
+}
+
+function refreshSessionsTable() {
+  const content = document.getElementById('sessions-content');
+  if (!content || !sessionsCache.length) { return; }
+  closeOpenSession();
+  const thead = content.querySelector('thead');
+  if (thead) {
+    $$('th.sortable', thead).forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === sortState.col) {
+        th.classList.add(sortState.dir === 1 ? 'sort-desc' : 'sort-asc');
+      }
+    });
+  }
+  const tbody = content.querySelector('tbody');
+  if (tbody) {
+    tbody.innerHTML = renderSessionsTbody(sortedSessions());
+    $$('tbody tr:not(.detail-row)', content).forEach(tr => {
+      tr.addEventListener('click', () => selectSession(tr.dataset.id, tr));
+    });
+  }
+}
+
+function exportSessionsCSV() {
+  const headers = ['Date (UTC)', 'Last Active', 'Workspace', 'Title', 'Session ID', 'Cost ($)', 'Credits', 'Cache Hit %'];
+  const rows = sessionsCache.map(s => [
+    s.date, s.last_date || s.date, s.workspace_name, s.session_title, s.id,
+    s._cost != null ? s._cost.toFixed(6) : '',
+    s._cost != null ? fmtCredits(s._cost) : '',
+    s._cache != null ? s._cache.toFixed(1) : '',
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `copilot-sessions-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadSessions() {
+  const loading = $('#sessions-loading');
+  const content = $('#sessions-content');
+  const detail = $('#session-detail');
+  loading.style.display = '';
+  content.style.display = 'none';
+  detail.style.display = 'none';
+  try {
+    const raw = await rpc('getSessions', getTimeParams());
+    sessionsCache = raw.map(s => ({ ...s, _cost: null, _cache: null }));
+    if (!sessionsCache.length) {
+      content.innerHTML = '<div class="empty">No sessions found in this time window.</div>';
+    } else {
+      const theadHTML = COL_DEFS.map(c => {
+        const sortCls = c.sortable ? 'sortable' + (c.key === sortState.col ? (sortState.dir === 1 ? ' sort-desc' : ' sort-asc') : '') : '';
+        const styleAttr = c.style ? ` style="${c.style}"` : '';
+        const dataAttr = c.sortable ? ` data-col="${c.key}"` : '';
+        return `<th class="${sortCls}"${styleAttr}${dataAttr}>${c.label}${c.sortable ? '<span class="sort-icon"></span>' : ''}</th>`;
+      }).join('');
+
+      content.innerHTML = `
+        <div class="cards" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-label">Total Cost</div>
+            <div class="card-value text-gold" id="sessions-totals-cost">…</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Total Credits</div>
+            <div class="card-value text-gold" id="sessions-totals-credits">…</div>
+            <div class="card-sub">1 credit = $0.01 USD</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-title">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span>Sessions (${sessionsCache.length})</span>
+              <button class="btn btn-sm btn-icon" id="export-btn" title="Export CSV" aria-label="Export CSV">
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path d="M8 1.75a.75.75 0 0 1 .75.75v5.69l1.72-1.72a.75.75 0 0 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V2.5A.75.75 0 0 1 8 1.75Zm-4 10a.75.75 0 0 1 .75.75v.5h6.5v-.5a.75.75 0 0 1 1.5 0v1.25a.75.75 0 0 1-.75.75h-8a.75.75 0 0 1-.75-.75V12.5a.75.75 0 0 1 .75-.75Z"/>
+                </svg>
+              </button>
+            </div>
+            <span class="text-muted" style="font-size:12px">Click a row to expand</span>
+          </div>
+          <table>
+            <thead><tr>${theadHTML}</tr></thead>
+            <tbody>${renderSessionsTbody(sortedSessions())}</tbody>
+          </table>
+        </div>`;
+
+      $$('thead th.sortable', content).forEach(th => {
+        th.addEventListener('click', () => {
+          if (sortState.col === th.dataset.col) { sortState.dir *= -1; }
+          else { sortState.col = th.dataset.col; sortState.dir = -1; }
+          refreshSessionsTable();
+        });
+      });
+
+      $$('tbody tr:not(.detail-row)', content).forEach(tr => {
+        tr.addEventListener('click', () => selectSession(tr.dataset.id, tr));
+      });
+
+      document.getElementById('export-btn')?.addEventListener('click', exportSessionsCSV);
+
+      let _totalCost = 0;
+      sessionsCache.forEach(s => {
+        rpc('getSession', { sessionId: s.id })
+          .then(data => {
+            const cost = data?.totals?.cost;
+            const cacheRatio = data?.totals?.cache_ratio;
+            s._cost = cost ?? null;
+            s._cache = cacheRatio ?? null;
+
+            const cell = document.querySelector(`.cost-cell[data-id="${cssEscape(s.id)}"]`);
+            const creditCell = document.querySelector(`.credit-cell[data-id="${cssEscape(s.id)}"]`);
+            const cacheCell = document.querySelector(`.cache-cell[data-id="${cssEscape(s.id)}"]`);
+            if (cell) cell.textContent = cost != null ? `$${cost.toFixed(4)}` : '—';
+            if (creditCell) creditCell.textContent = cost != null ? fmtCredits(cost) : '—';
+            if (cacheCell) cacheCell.innerHTML = renderCacheSquare(s);
+
+            if (cost != null) {
+              _totalCost += cost;
+              const tc = document.getElementById('sessions-totals-cost');
+              const cr = document.getElementById('sessions-totals-credits');
+              if (tc) tc.textContent = `$${_totalCost.toFixed(4)}`;
+              if (cr) cr.textContent = fmtCredits(_totalCost);
+            }
+          })
+          .catch(() => {
+            const cell = document.querySelector(`.cost-cell[data-id="${cssEscape(s.id)}"]`);
+            const creditCell = document.querySelector(`.credit-cell[data-id="${cssEscape(s.id)}"]`);
+            const cacheCell = document.querySelector(`.cache-cell[data-id="${cssEscape(s.id)}"]`);
+            if (cell) cell.textContent = '—';
+            if (creditCell) creditCell.textContent = '—';
+            if (cacheCell) cacheCell.textContent = '—';
+          });
+      });
+    }
+    content.style.display = '';
+  } catch (e) {
+    content.innerHTML = `<div class="empty">${escapeHtml((e && e.message) || String(e))}</div>`;
+    content.style.display = '';
+  }
+  loading.style.display = 'none';
+}
+
+function closeOpenSession() {
+  if (!openSessionId) return;
+  const parentTr = document.querySelector(`#sessions-content tbody tr[data-id="${cssEscape(openSessionId)}"]`);
+  const detailTr = document.querySelector(`#sessions-content .detail-row[data-parent-id="${cssEscape(openSessionId)}"]`);
+  if (parentTr) {
+    parentTr.classList.remove('selected');
+    const arrow = parentTr.querySelector('.row-toggle');
+    if (arrow) arrow.innerHTML = '&#9654;';
+  }
+  if (detailTr) detailTr.remove();
+  openSessionId = null;
+}
+
+async function selectSession(id, clickedTr) {
+  const isOpen = openSessionId === id;
+  closeOpenSession();
+  if (isOpen) return;
+
+  openSessionId = id;
+  clickedTr.classList.add('selected');
+  const arrow = clickedTr.querySelector('.row-toggle');
+  if (arrow) arrow.innerHTML = '&#9660;';
+
+  const colCount = clickedTr.cells.length;
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  detailTr.dataset.parentId = id;
+  detailTr.innerHTML = `<td colspan="${colCount}"><div class="loading"><div class="spinner"></div><div>Loading session…</div></div></td>`;
+  clickedTr.insertAdjacentElement('afterend', detailTr);
+
+  try {
+    const data = await rpc('getSession', { sessionId: id });
+    detailTr.innerHTML = `<td colspan="${colCount}">${renderSessionDetail(data)}</td>`;
+  } catch (e) {
+    detailTr.innerHTML = `<td colspan="${colCount}"><div class="empty">${escapeHtml((e && e.message) || String(e))}</div></td>`;
+  }
+}
+
+// ─── View: Aggregate ───────────────────────────────────────────────────
+async function loadAggregate() {
+  const loading = $('#agg-loading');
+  const content = $('#agg-content');
+  loading.style.display = '';
+  content.style.display = 'none';
+  try {
+    const data = await rpc('getAggregate', getTimeParams());
+    content.innerHTML = `
+      <div class="detail-panel">
+        <div class="detail-header">
+          <div>
+            <div class="detail-title">Aggregate — last ${escapeHtml(data.hours)}h</div>
+            <div class="detail-meta">${escapeHtml(data.sessions_count)} session${data.sessions_count!==1?'s':''} analysed</div>
+          </div>
+          <div style="text-align:right">
+            <div class="card-value text-gold" style="font-size:20px">${fmtCost(data.totals.cost)}</div>
+            <div class="card-sub" style="color:var(--gold);margin-top:2px">${fmtCredits(data.totals.cost)} credits</div>
+          </div>
+        </div>
+        ${renderSummaryCards(data.totals, 'cards cards-agg')}
+        <div style="margin-top:16px">
+          <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Model Breakdown</h3>
+          ${renderModelBreakdown(data.models)}
+        </div>
+      </div>`;
+    content.style.display = '';
+  } catch (e) {
+    content.innerHTML = `<div class="empty">${escapeHtml((e && e.message) || String(e))}</div>`;
+    content.style.display = '';
+  }
+  loading.style.display = 'none';
+}
+
+// ─── Deep Dive ─────────────────────────────────────────────────────────
+const _ddSortState = {}; // sessionId -> { col, dir }
+const _ddData = {};      // sessionId -> SessionDeepDive
+
+function fmtTs(tsMs, showDate) {
+  if (tsMs == null) { return '<span class="text-muted">—</span>'; }
+  const d = new Date(tsMs);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  if (showDate) {
+    const mon = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${mon}/${day} ${hh}:${mm}:${ss}`;
+  }
+  return `${hh}:${mm}:${ss}`;
+}
+
+function ddMultiDay(turns) {
+  const tss = turns.flatMap(t => [t.firstTs, t.lastTs]).filter(t => t != null);
+  if (tss.length < 2) { return false; }
+  const min = new Date(Math.min(...tss));
+  const max = new Date(Math.max(...tss));
+  return min.toDateString() !== max.toDateString();
+}
+
+function ddCacheDisp(pct) {
+  if (pct == null) { return '<span class="text-muted">N/A</span>'; }
+  const cls = pct > 90 ? 'text-green' : pct >= 70 ? 'text-yellow' : 'text-red';
+  return `<span class="${cls}">${pct.toFixed(1)}%</span>`;
+}
+
+function ddFreshCls(fresh, input) {
+  return (input > 0 && fresh / input > 0.8) ? 'text-red' : '';
+}
+
+function ddShortenName(debugName) {
+  if (!debugName) { return '—'; }
+  // Take last segment after '/' or use full name if short
+  const seg = debugName.split('/').pop() || debugName;
+  return seg.length > 28 ? seg.slice(0, 27) + '…' : seg;
+}
+
+function renderDeepDiveTable(sessionId, data) {
+  const { turns, totals } = data;
+  const multiDay = ddMultiDay(turns);
+  const sort = _ddSortState[sessionId] || { col: 'cost', dir: -1 };
+
+  const DD_COLS = [
+    { key: 'turn',   label: 'Turn',    sortable: true },
+    { key: 'ts',     label: 'Time',    sortable: true },
+    { key: 'input',  label: 'Tokens In', sortable: true },
+    { key: 'output', label: 'Tokens Out', sortable: true },
+    { key: 'cachepct', label: 'Cache %', sortable: true },
+    { key: 'cost',   label: 'Cost',    sortable: true },
+    { key: 'type',   label: 'Details', sortable: false },
+  ];
+
+  // Sort turn rows
+  const sorted = [...turns].sort((a, b) => {
+    let av, bv;
+    switch (sort.col) {
+      case 'turn':     av = a.turn;           bv = b.turn;           break;
+      case 'ts':       av = a.firstTs ?? -1;  bv = b.firstTs ?? -1;  break;
+      case 'input':    av = a.inputTokens;    bv = b.inputTokens;    break;
+      case 'output':   av = a.outputTokens;   bv = b.outputTokens;   break;
+      case 'cachepct': av = a.cacheHitPct;    bv = b.cacheHitPct;    break;
+      case 'cost':     av = a.cost;           bv = b.cost;           break;
+      default:         av = a.cost;           bv = b.cost;
+    }
+    if (av < bv) { return sort.dir; }
+    if (av > bv) { return -sort.dir; }
+    return 0;
+  });
+
+
+  const theadHTML = DD_COLS.map(c => {
+    const isActive = c.sortable && c.key === sort.col;
+    const sortCls = c.sortable
+      ? ('sortable' + (isActive ? (sort.dir === 1 ? ' sort-asc' : ' sort-desc') : ''))
+      : '';
+    const dataAttr = c.sortable ? ` data-ddcol="${escapeHtml(c.key)}"` : '';
+    return `<th class="${sortCls}"${dataAttr}>${escapeHtml(c.label)}${c.sortable ? '<span class="sort-icon"></span>' : ''}</th>`;
+  }).join('');
+
+  let rowsHTML = '';
+  for (const t of sorted) {
+    const turnLabel = t.turn === 0 ? 'Setup' : `Turn ${t.turn}`;
+    const summBadge = t.hasSummarization
+      ? ' <span title="Context summarization occurred in this turn">⚠️</span>'
+      : '';
+
+    // User message preview (truncated)
+    const userMsgPreview = t.userMessage
+      ? `<span class="dd-user-msg" title="${escapeHtml(t.userMessage)}">${escapeHtml(t.userMessage.length > 80 ? t.userMessage.slice(0, 77) + '…' : t.userMessage)}</span>`
+      : '';
+
+    // Compact token breakdown tooltip: "Fresh: X | Cached: Y"
+    const tokenTooltip = `Input: ${fmt(t.inputTokens)} (Fresh: ${fmt(t.freshTokens)}, Cached: ${fmt(t.cachedTokens)})`;
+
+    // Summarise unique debugName segments for the Details cell
+    const uniqueTypes = [...new Set(t.callRecords.map(c => ddShortenName(c.debugName)).filter(n => n !== '—'))];
+    const turnTypeSummary = uniqueTypes.length > 1 ? 'multiple' : uniqueTypes.join(', ');
+
+    const arrowCls = 'dd-arrow';
+
+    rowsHTML += `<tr class="dd-turn-row" data-ddturn="${escapeHtml(String(t.turn))}" style="background:var(--surface2);cursor:pointer">
+      <td style="font-weight:600"><span class="${arrowCls}">▶</span> <b>${escapeHtml(turnLabel)}</b><span class="dd-call-count">${t.calls}</span>${summBadge}${userMsgPreview}</td>
+      <td class="mono" style="font-size:11px">${fmtTs(t.firstTs, multiDay)}</td>
+      <td class="mono" title="${escapeHtml(tokenTooltip)}">${fmt(t.inputTokens)}</td>
+      <td class="mono">${fmt(t.outputTokens)}</td>
+      <td>${ddCacheDisp(t.cacheHitPct)}</td>
+      <td class="mono text-gold" style="font-weight:600">${fmtCost(t.cost)}</td>
+      <td class="text-muted" style="cursor:default;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(uniqueTypes.join(', '))}">${turnTypeSummary || '—'}</td>
+    </tr>`;
+
+    t.callRecords.forEach((c, idx) => {
+      const callIdx = idx + 1;
+      const seqLabel = t.turn === 0 ? `0.${callIdx}` : `${t.turn}.${callIdx}`;
+      const freshCallCls = ddFreshCls(c.freshTokens, c.inputTokens);
+      const callTokenTooltip = `Fresh: ${fmt(c.freshTokens)}, Cached: ${c.cachedTokens < 0 ? 'N/A' : fmt(c.cachedTokens)}`;
+      const shortened = escapeHtml(ddShortenName(c.debugName));
+      let typeHTML = c.debugName.toLowerCase().includes('summarize')
+        ? `<span title="Context summarization — may invalidate cache">⚠️</span> ${shortened}`
+        : shortened;
+      if (c.isSubagent) {
+        typeHTML += ' <span class="badge badge-gray" style="font-size:10px;padding:1px 5px">sub</span>';
+      }
+      const modelShort = escapeHtml(c.model.replace(/^.*\//, ''));
+      typeHTML += ` <span class="text-muted mono" style="font-size:10px" title="${escapeHtml(c.model)}">${modelShort}</span>`;
+
+      const callDisplay = 'display:none;';
+      rowsHTML += `<tr class="dd-call-row" data-ddturn="${escapeHtml(String(t.turn))}" style="${callDisplay}font-size:12px">
+        <td class="mono text-muted" style="padding-left:32px">${escapeHtml(seqLabel)}</td>
+        <td class="mono" style="font-size:11px">${fmtTs(c.ts, multiDay)}</td>
+        <td class="mono ${freshCallCls}" title="${escapeHtml(callTokenTooltip)}">${fmt(c.inputTokens)}</td>
+        <td class="mono">${fmt(c.outputTokens)}</td>
+        <td>${ddCacheDisp(c.cacheHitPct)}</td>
+        <td class="mono text-muted">${fmtCost(c.cost)}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${typeHTML}</td>
+      </tr>`;
+    });
+  }
+
+  // Totals row
+  const freshTotCls = ddFreshCls(totals.freshTokens, totals.inputTokens);
+  const totalTokenTooltip = `Fresh: ${fmt(totals.freshTokens)}, Cached: ${fmt(totals.cachedTokens)}`;
+  rowsHTML += `<tr style="background:var(--surface2);font-weight:600;border-top:2px solid var(--border)">
+    <td><b>Total</b></td>
+    <td class="text-muted">—</td>
+    <td class="mono" title="${escapeHtml(totalTokenTooltip)}">${fmt(totals.inputTokens)}</td>
+    <td class="mono">${fmt(totals.outputTokens)}</td>
+    <td>${ddCacheDisp(totals.cacheHitPct)}</td>
+    <td class="mono text-gold">${fmtCost(totals.cost)}</td>
+    <td>—</td>
+  </tr>`;
+
+  return `<div class="dd-table-wrap">
+    <div class="dd-toolbar">
+      <span style="font-size:13px;font-weight:600">Analysis — ${totals.turns} turn${totals.turns !== 1 ? 's' : ''}, ${totals.calls} call${totals.calls !== 1 ? 's' : ''}</span>
+      <div class="dd-toolbar-actions">
+        <button class="dd-toolbar-btn" data-dd-expand-all="${escapeHtml(sessionId)}">Expand all</button>
+        <button class="dd-toolbar-btn" data-dd-collapse-all="${escapeHtml(sessionId)}">Collapse all</button>
+      </div>
+    </div>
+    <table>
+      <thead><tr>${theadHTML}</tr></thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>
+  </div>`;
+}
+
+function ddToggleTurn(tr, sessionId, turn) {
+  const container = tr.closest('[id^="deep-dive-"]');
+  if (!container) { return; }
+  const arrow = tr.querySelector('.dd-arrow');
+  const isOpen = arrow && arrow.classList.contains('open');
+  const turnStr = String(turn);
+  container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(row => {
+    row.style.display = isOpen ? 'none' : '';
+  });
+  if (arrow) { arrow.classList.toggle('open', !isOpen); }
+}
+
+function ddExpandAll(sessionId, containerEl) {
+  const container = containerEl || document.getElementById('deep-dive-' + sessionId);
+  if (!container) { return; }
+  container.querySelectorAll('.dd-call-row').forEach(r => { r.style.display = ''; });
+  container.querySelectorAll('.dd-arrow').forEach(a => { a.classList.add('open'); });
+}
+
+function ddCollapseAll(sessionId, containerEl) {
+  const container = containerEl || document.getElementById('deep-dive-' + sessionId);
+  if (!container) { return; }
+  container.querySelectorAll('.dd-call-row').forEach(r => { r.style.display = 'none'; });
+  container.querySelectorAll('.dd-arrow').forEach(a => { a.classList.remove('open'); });
+}
+
+function ddApplySort(sessionId, containerEl) {
+  const data = _ddData[sessionId];
+  if (!data) { return; }
+  const container = containerEl || document.getElementById('deep-dive-' + sessionId);
+  if (!container) { return; }
+  // Preserve open state before re-render
+  const openTurns = new Set();
+  container.querySelectorAll('.dd-turn-row').forEach(tr => {
+    const arrow = tr.querySelector('.dd-arrow');
+    if (arrow && arrow.classList.contains('open')) {
+      openTurns.add(tr.dataset.ddturn);
+    }
+  });
+  container.innerHTML = renderDeepDiveTable(sessionId, data);
+  ddAttachHandlers(sessionId, container);
+  // Restore open state
+  container.querySelectorAll('.dd-turn-row').forEach(tr => {
+    if (openTurns.has(tr.dataset.ddturn)) {
+      const arrow = tr.querySelector('.dd-arrow');
+      if (arrow) { arrow.classList.add('open'); }
+      const turnStr = tr.dataset.ddturn;
+      container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(r => {
+        r.style.display = '';
+      });
+    }
+  });
+}
+
+function ddAttachHandlers(sessionId, container) {
+  container.querySelectorAll('thead th[data-ddcol]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.ddcol;
+      const state = _ddSortState[sessionId] || { col: 'ts', dir: -1 };
+      if (state.col === col) { state.dir *= -1; } else { state.col = col; state.dir = 1; }
+      _ddSortState[sessionId] = state;
+      ddApplySort(sessionId, container);
+    });
+  });
+  container.querySelectorAll('tr.dd-turn-row').forEach(tr => {
+    tr.addEventListener('click', () => ddToggleTurn(tr, sessionId, Number(tr.dataset.ddturn)));
+  });
+  const expandBtn = container.querySelector(`button[data-dd-expand-all="${CSS.escape(sessionId)}"]`);
+  const collapseBtn = container.querySelector(`button[data-dd-collapse-all="${CSS.escape(sessionId)}"]`);
+  if (expandBtn) { expandBtn.addEventListener('click', (e) => { e.stopPropagation(); ddExpandAll(sessionId, container); }); }
+  if (collapseBtn) { collapseBtn.addEventListener('click', (e) => { e.stopPropagation(); ddCollapseAll(sessionId, container); }); }
+}
+
+async function loadDeepDive(sessionId, triggerBtn) {
+  // Scope to the panel containing the clicked button to avoid matching duplicate
+  // container IDs when the same session appears in both Latest and All Sessions views.
+  const panel = triggerBtn ? triggerBtn.closest('.detail-panel') : null;
+  const container = panel
+    ? panel.querySelector(`[id="deep-dive-${sessionId}"]`)
+    : document.getElementById('deep-dive-' + sessionId);
+  if (!container) { return; }
+
+  const btn = triggerBtn || document.querySelector(`button[data-dd-session="${CSS.escape(sessionId)}"]`);
+  const buttonLabel = `
+    <span class="dd-trigger-icon" aria-hidden="true">
+      <svg viewBox="0 0 16 16" focusable="false">
+        <path d="M2 12.25A.75.75 0 0 1 2.75 11.5h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 12.25Zm1-2.5V6.75a.75.75 0 0 1 1.5 0v3a.75.75 0 0 1-1.5 0Zm3-1.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v1.75a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75V8Zm3-2.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-4.5Zm3-1.5a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75v6a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-6Z"/>
+      </svg>
+    </span>
+    <span>Analysis</span>
+  `.trim();
+
+  // Toggle: if already loaded, hide/show
+  if (container.dataset.ddLoaded === 'true') {
+    const isVisible = container.style.display !== 'none';
+    container.style.display = isVisible ? 'none' : '';
+    if (btn) {
+      btn.innerHTML = buttonLabel + (isVisible ? ' <span aria-hidden="true">↓</span>' : ' <span aria-hidden="true">↑</span>');
+      btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
+      btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
+    }
+    if (!isVisible) { container.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    return;
+  }
+
+  container.style.display = '';
+  container.dataset.ddLoaded = 'loading';
+  container.innerHTML = '<div class="loading" style="padding:24px 0"><div class="spinner"></div><div>Loading…</div></div>';
+  if (btn) {
+    btn.innerHTML = '<span style="font-size:11px;display:inline-flex;align-items:center;margin-right:6px">⏳</span><span>Analysis</span>';
+    btn.disabled = true;
+    btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
+    btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
+  }
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const data = await rpc('getSessionDeepDive', { sessionId });
+    _ddData[sessionId] = data;
+    _ddSortState[sessionId] = { col: 'ts', dir: -1 };
+
+    if (!data.turns || data.turns.length === 0) {
+      container.innerHTML = '<div class="empty" style="padding:16px 0">No LLM calls found in this session.</div>';
+    } else {
+      container.innerHTML = renderDeepDiveTable(sessionId, data);
+      ddAttachHandlers(sessionId, container);
+    }
+    container.dataset.ddLoaded = 'true';
+    if (btn) {
+      btn.innerHTML = buttonLabel + ' <span aria-hidden="true">↑</span>';
+      btn.disabled = false;
+      btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
+      btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
+    }
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    container.innerHTML = `<div class="empty" style="padding:16px 0">${escapeHtml((e && e.message) || String(e))}</div>`;
+    container.dataset.ddLoaded = 'false';
+    if (btn) {
+      btn.innerHTML = buttonLabel + ' <span aria-hidden="true">↓</span>';
+      btn.disabled = false;
+      btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
+      btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
+    }
+  }
+}
+
+// ─── Tab switching ─────────────────────────────────────────────────────
+const viewLoaders = { latest: loadLatest, sessions: loadSessions, aggregate: loadAggregate };
+let currentView = 'latest';
+
+function switchView(view) {
+  if (view !== 'latest') { _clearLatestAutoRefresh(); }
+  currentView = view;
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
+  viewLoaders[view]();
+}
+
+$$('.tab').forEach(tab => tab.addEventListener('click', () => switchView(tab.dataset.view)));
+
+$('#refresh-btn').addEventListener('click', () => switchView(currentView));
+$('#hours-select').addEventListener('change', () => {
+  const isCustom = $('#hours-select').value === 'custom';
+  const isMtd = $('#hours-select').value === 'mtd';
+  if (isMtd) { $('#custom-range').style.display = 'none'; switchView(currentView); return; }
+  $('#custom-range').style.display = isCustom ? 'flex' : 'none';
+  if (!isCustom) switchView(currentView);
+});
+$('#date-from').addEventListener('change', () => { if ($('#date-to').value) switchView(currentView); });
+$('#date-to').addEventListener('change',   () => { if ($('#date-from').value) switchView(currentView); });
+
+// Deep Dive button — delegated handler (inline onclick blocked by CSP)
+document.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-dd-session]');
+  if (btn) { loadDeepDive(btn.dataset.ddSession, btn); }
+});
+
+// Initial load
+loadLatest();
+</script>
+
+<div style="text-align:center;padding:16px 24px 24px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);margin-top:8px">
+  Prices based on <a href="https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing" style="color:var(--accent);text-decoration:none;">docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing</a>
+</div>
+</body>
+</html>
