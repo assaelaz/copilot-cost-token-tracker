@@ -44,13 +44,6 @@ Visualise Copilot agent session token costs directly inside VS Code. The extensi
 3. Install the extension
 4. Reload when prompted
 
-### From a VSIX
-
-1. Download the `.vsix` file
-2. Open the Extensions view
-3. Select `...` and choose `Install from VSIX...`
-4. Pick the downloaded `.vsix` file
-5. Reload when prompted
 
 ## Usage
 
