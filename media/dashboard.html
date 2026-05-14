@@ -303,6 +303,14 @@ tbody tr.selected { background: var(--accent-dim); }
 .dd-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; margin-top: 8px; }
 .dd-turn-row td { border-bottom: 1px solid var(--border); padding: 9px 14px; }
 .dd-call-row td { border-bottom: 1px solid var(--border); padding: 7px 14px; }
+.dd-tool-row td { border-bottom: 1px solid var(--border); padding: 5px 14px; background: #161b2288; }
+.dd-tool-row:hover td { background: #1c212888 !important; }
+.dd-tool-strip td { border-bottom: 1px solid var(--border); padding: 6px 14px 8px 32px; background: #0d111788; }
+.dd-tool-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dd-tool-label { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: .4px; margin-right: 4px; flex-shrink: 0; font-weight: 600; }
+.dd-tool-chip { display: inline-flex; align-items: center; gap: 4px; background: #8b949e0f; border: 1px solid #30363d88; border-radius: 20px; color: var(--text-muted); font-family: var(--mono); font-size: 10px; padding: 2px 8px; white-space: nowrap; cursor: default; transition: border-color .12s, color .12s; }
+.dd-tool-chip:hover { border-color: var(--accent); color: var(--accent); }
+.dd-tool-chip-count { background: var(--surface2); border-radius: 10px; font-size: 9px; font-weight: 600; padding: 0 5px; color: var(--text-muted); }
 .dd-call-row:last-child td, .dd-turn-row:last-child td { border-bottom: none; }
 .dd-turn-row:hover { filter: brightness(1.08); }
 .dd-call-row:hover { background: var(--surface2) !important; }
@@ -314,10 +322,18 @@ tbody tr.selected { background: var(--accent-dim); }
 .dd-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .dd-toolbar-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; transition: all 0.12s; }
 .dd-toolbar-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dd-discovery { padding: 8px 14px 10px; border-bottom: 1px solid var(--border); background: #0d111788; }
+.dd-discovery summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text); font-size: 12px; font-weight: 600; user-select: none; }
+.dd-discovery summary::-webkit-details-marker { display: none; }
+.dd-discovery-content { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.dd-discovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dd-call-count { display: inline-flex; align-items: center; justify-content: center; background: var(--accent-dim); color: var(--accent); border-radius: 10px; font-size: 10px; font-weight: 600; min-width: 20px; height: 18px; padding: 0 6px; margin-left: 6px; }
 .dd-trigger-btn { display: inline-flex; align-items: center; }
 .dd-trigger-icon { display: inline-flex; align-items: center; justify-content: center; width: 10px; height: 10px; margin-right: 6px; flex: 0 0 auto; }
 .dd-trigger-icon svg { width: 100%; height: 100%; fill: currentColor; }
+.dd-trigger-btn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); }
+.dd-trigger-btn.active:hover { opacity: 0.85; }
+.dd-collapse-footer { display: flex; justify-content: center; padding: 10px 0 4px; border-top: 1px solid var(--border); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -537,6 +553,67 @@ function renderModelBreakdown(models) {
     </div>`;
 }
 
+function renderDiscoveryBreakdown(ctx) {
+  if (!ctx) return '<div class="empty">No discovery data</div>';
+
+  const skillPaths = ctx.skillPaths || {};
+  const instructionPaths = ctx.instructionPaths || {};
+  const agentPaths = ctx.agentPaths || {};
+  const slashCommandPaths = ctx.slashCommandPaths || {};
+
+  const uniqueSkills = [...new Set(Array.isArray(ctx.skills) ? ctx.skills : [])];
+  const uniqueAgents = [...new Set(Array.isArray(ctx.agents) ? ctx.agents : [])];
+  const uniqueSlashCommands = [...new Set(Array.isArray(ctx.slashCommands) ? ctx.slashCommands : [])];
+  const uniqueInstructions = [...new Set((Array.isArray(ctx.instructions) ? ctx.instructions : []).map(name => {
+    const fullPath = instructionPaths[name] || '';
+    return fullPath ? fullPath.split('/').pop() : `${name}.instructions.md`;
+  }))];
+
+  const sections = [
+    {
+      title: 'Skills',
+      subtitle: 'Discovered skill files',
+      items: uniqueSkills.map(name => ({ name, tip: skillPaths[name] || name })),
+    },
+    {
+      title: 'Instructions',
+      subtitle: 'Discovered instruction files',
+      items: uniqueInstructions.map(fileName => {
+        const instructionKey = fileName.replace(/\.instructions\.md$/i, '');
+        const fullPath = instructionPaths[instructionKey] || instructionPaths[fileName] || '';
+        return { name: fileName, tip: fullPath || fileName };
+      }),
+    },
+    {
+      title: 'Agents',
+      subtitle: 'Discovered custom agents',
+      items: uniqueAgents.map(name => ({ name, tip: agentPaths[name] || name })),
+    },
+    {
+      title: 'Slash Commands',
+      subtitle: 'Discovered slash commands',
+      items: uniqueSlashCommands.map(name => ({ name, tip: slashCommandPaths[name] || name })),
+    },
+  ];
+
+  return `
+    <div class="model-breakdown">
+      ${sections.map(section => `
+        <div class="model-card">
+          <div class="model-card-head">
+            <div>
+              <div class="model-name">${escapeHtml(section.title)}</div>
+              <div class="text-muted" style="font-size:11px">${escapeHtml(section.subtitle)}</div>
+            </div>
+            <div class="mono text-accent" style="font-size:18px;font-weight:600">${section.items.length}</div>
+          </div>
+          ${section.items.length
+            ? `<div class="dd-tool-chips" style="margin-top:10px">${section.items.map(item => `<span class="dd-tool-chip" title="${escapeHtml(item.tip)}">${escapeHtml(item.name)}</span>`).join('')}</div>`
+            : '<div class="text-muted" style="font-size:12px;margin-top:10px">None</div>'}
+        </div>`).join('')}
+    </div>`;
+}
+
 function renderSessionDetail(data) {
   const s = data.session;
   return `
@@ -576,6 +653,14 @@ function renderSessionDetail(data) {
         <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Model Breakdown</h3>
         ${renderModelBreakdown(data.models)}
       </div>
+      <div style="margin-top:16px">
+        <details>
+          <summary style="font-size:14px;font-weight:600;cursor:pointer">Discovery</summary>
+          <div style="margin-top:12px">
+            ${renderDiscoveryBreakdown(data.context)}
+          </div>
+        </details>
+      </div>
       <div id="deep-dive-${escapeHtml(s.id)}" style="margin-top:16px"></div>
     </div>`;
 }
@@ -598,6 +683,7 @@ async function loadLatest() {
   try {
     const data = await rpc('getLatest', getTimeParams());
     _latestSessionId = data.session?.id;
+    if (data.session?.id && data.context) { _ddCtx[data.session.id] = data.context; }
     content.innerHTML = renderSessionDetail(data);
     content.style.display = '';
     // Auto-refresh the SAME session while it has no title or is < 5 min old
@@ -608,6 +694,7 @@ async function loadLatest() {
         if (currentView !== 'latest' || !_latestSessionId) { _clearLatestAutoRefresh(); return; }
         try {
           const fresh = await rpc('getSession', { sessionId: _latestSessionId });
+          if (fresh.session?.id && fresh.context) { _ddCtx[fresh.session.id] = fresh.context; }
           $('#latest-content').innerHTML = renderSessionDetail(fresh);
           const stillNew = !fresh.session?.session_title || fresh.session.session_title === 'untitled'
             || (Date.now() - (fresh.session?.ts || 0)) < 5 * 60 * 1000;
@@ -700,22 +787,19 @@ function refreshSessionsTable() {
   }
 }
 
-function exportSessionsCSV() {
-  const headers = ['Date (UTC)', 'Last Active', 'Workspace', 'Title', 'Session ID', 'Cost ($)', 'Credits', 'Cache Hit %'];
-  const rows = sessionsCache.map(s => [
-    s.date, s.last_date || s.date, s.workspace_name, s.session_title, s.id,
-    s._cost != null ? s._cost.toFixed(6) : '',
-    s._cost != null ? fmtCredits(s._cost) : '',
-    s._cache != null ? s._cache.toFixed(1) : '',
-  ]);
-  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `copilot-sessions-${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+function exportData(format) {
+  const csvBtn  = document.getElementById('export-csv-btn');
+  const jsonBtn = document.getElementById('export-json-btn');
+  const origCsv  = csvBtn  ? csvBtn.innerHTML  : null;
+  const origJson = jsonBtn ? jsonBtn.innerHTML : null;
+  function setBusy(busy) {
+    if (csvBtn)  { csvBtn.disabled  = busy; if (origCsv)  csvBtn.innerHTML  = busy ? '⏳ Exporting CSV…'  : origCsv; }
+    if (jsonBtn) { jsonBtn.disabled = busy; if (origJson) jsonBtn.innerHTML = busy ? '⏳ Exporting JSON…' : origJson; }
+  }
+  setBusy(true);
+  rpc('exportData', { ...getTimeParams(), format })
+    .then(() => setBusy(false))
+    .catch(err => { setBusy(false); console.error('Export failed:', err); });
 }
 
 async function loadSessions() {
@@ -727,7 +811,7 @@ async function loadSessions() {
   detail.style.display = 'none';
   try {
     const raw = await rpc('getSessions', getTimeParams());
-    sessionsCache = raw.map(s => ({ ...s, _cost: null, _cache: null }));
+    sessionsCache = raw.map(s => ({ ...s, _cost: null, _cache: null, _analysis: null, _ctx: null }));
     if (!sessionsCache.length) {
       content.innerHTML = '<div class="empty">No sessions found in this time window.</div>';
     } else {
@@ -754,11 +838,8 @@ async function loadSessions() {
           <div class="table-title">
             <div style="display:flex;align-items:center;gap:10px">
               <span>Sessions (${sessionsCache.length})</span>
-              <button class="btn btn-sm btn-icon" id="export-btn" title="Export CSV" aria-label="Export CSV">
-                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                  <path d="M8 1.75a.75.75 0 0 1 .75.75v5.69l1.72-1.72a.75.75 0 0 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V2.5A.75.75 0 0 1 8 1.75Zm-4 10a.75.75 0 0 1 .75.75v.5h6.5v-.5a.75.75 0 0 1 1.5 0v1.25a.75.75 0 0 1-.75.75h-8a.75.75 0 0 1-.75-.75V12.5a.75.75 0 0 1 .75-.75Z"/>
-                </svg>
-              </button>
+              <button class="btn btn-sm" id="export-csv-btn" title="Export as CSV">&#8595; Export CSV</button>
+              <button class="btn btn-sm" id="export-json-btn" title="Export as JSON">&#8595; Export JSON</button>
             </div>
             <span class="text-muted" style="font-size:12px">Click a row to expand</span>
           </div>
@@ -780,11 +861,12 @@ async function loadSessions() {
         tr.addEventListener('click', () => selectSession(tr.dataset.id, tr));
       });
 
-      document.getElementById('export-btn')?.addEventListener('click', exportSessionsCSV);
+      document.getElementById('export-csv-btn')?.addEventListener('click', () => exportData('csv'));
+      document.getElementById('export-json-btn')?.addEventListener('click', () => exportData('json'));
 
       let _totalCost = 0;
       sessionsCache.forEach(s => {
-        rpc('getSession', { sessionId: s.id })
+        rpc('getSessionCost', { sessionId: s.id })
           .then(data => {
             const cost = data?.totals?.cost;
             const cacheRatio = data?.totals?.cache_ratio;
@@ -855,7 +937,18 @@ async function selectSession(id, clickedTr) {
   clickedTr.insertAdjacentElement('afterend', detailTr);
 
   try {
-    const data = await rpc('getSession', { sessionId: id });
+    const cached = sessionsCache.find(x => x.id === id);
+    let data;
+    if (cached && cached._analysis) {
+      data = cached._analysis;
+    } else {
+      data = await rpc('getSession', { sessionId: id });
+      if (cached) {
+        cached._analysis = data;
+        if (data && data.context) { cached._ctx = data.context; }
+      }
+    }
+    if (data && data.session?.id && data.context) { _ddCtx[data.session.id] = data.context; }
     detailTr.innerHTML = `<td colspan="${colCount}">${renderSessionDetail(data)}</td>`;
   } catch (e) {
     detailTr.innerHTML = `<td colspan="${colCount}"><div class="empty">${escapeHtml((e && e.message) || String(e))}</div></td>`;
@@ -899,6 +992,7 @@ async function loadAggregate() {
 // ─── Deep Dive ─────────────────────────────────────────────────────────
 const _ddSortState = {}; // sessionId -> { col, dir }
 const _ddData = {};      // sessionId -> SessionDeepDive
+const _ddCtx = {};       // sessionId -> SessionContext
 
 function fmtTs(tsMs, showDate) {
   if (tsMs == null) { return '<span class="text-muted">—</span>'; }
@@ -939,7 +1033,7 @@ function ddShortenName(debugName) {
   return seg.length > 28 ? seg.slice(0, 27) + '…' : seg;
 }
 
-function renderDeepDiveTable(sessionId, data) {
+function renderDeepDiveTable(sessionId, data, ctx) {
   const { turns, totals } = data;
   const multiDay = ddMultiDay(turns);
   const sort = _ddSortState[sessionId] || { col: 'cost', dir: -1 };
@@ -981,6 +1075,12 @@ function renderDeepDiveTable(sessionId, data) {
     return `<th class="${sortCls}"${dataAttr}>${escapeHtml(c.label)}${c.sortable ? '<span class="sort-icon"></span>' : ''}</th>`;
   }).join('');
 
+  const skillPaths = (ctx && ctx.skillPaths) || {};
+  const instrPaths = (ctx && ctx.instructionPaths) || {};
+
+  const hasTurn0 = sorted.some(t => t.turn === 0);
+  const skillsByTurn = (ctx && ctx.skillsByTurn) || {};
+  const instructionsByTurn = (ctx && ctx.instructionsByTurn) || {};
   let rowsHTML = '';
   for (const t of sorted) {
     const turnLabel = t.turn === 0 ? 'Setup' : `Turn ${t.turn}`;
@@ -1000,10 +1100,35 @@ function renderDeepDiveTable(sessionId, data) {
     const uniqueTypes = [...new Set(t.callRecords.map(c => ddShortenName(c.debugName)).filter(n => n !== '—'))];
     const turnTypeSummary = uniqueTypes.length > 1 ? 'multiple' : uniqueTypes.join(', ');
 
+    const toolCalls = t.toolCalls || [];
+    const agentRefs = t.agentRefs || [];
+    const turnSkills = [
+      ...(skillsByTurn[String(t.turn)] || []),
+      ...(!hasTurn0 && t.turn === 1 ? (skillsByTurn['0'] || []) : []),
+    ].filter((value, idx, arr) => arr.indexOf(value) === idx);
+    const turnInstrFiles = [
+      ...(instructionsByTurn[String(t.turn)] || []),
+      ...(!hasTurn0 && t.turn === 1 ? (instructionsByTurn['0'] || []) : []),
+    ].filter((value, idx, arr) => arr.indexOf(value) === idx);
+    // Tools: tool calls whose names are NOT skills (skills are discovery-level, not tool-call-level)
+    const turnTools = toolCalls;
+    const toolCountBadge = toolCalls.length > 0
+      ? ` <span class="dd-call-count" title="${toolCalls.length} tool call${toolCalls.length !== 1 ? 's' : ''}">${toolCalls.length} tools</span>`
+      : '';
+    const agentCountBadge = agentRefs.length > 0
+      ? ` <span class="dd-call-count" title="${agentRefs.length} agent${agentRefs.length !== 1 ? 's' : ''} invoked">${agentRefs.length} agents</span>`
+      : '';
+    const skillCountBadge = turnSkills.length > 0
+      ? ` <span class="dd-call-count" title="${turnSkills.length} skill${turnSkills.length !== 1 ? 's' : ''} used on this turn">${turnSkills.length} skills</span>`
+      : '';
+    const instructionCountBadge = turnInstrFiles.length > 0
+      ? ` <span class="dd-call-count" title="${turnInstrFiles.length} instruction${turnInstrFiles.length !== 1 ? 's' : ''} applied on this turn">${turnInstrFiles.length} instructions</span>`
+      : '';
+
     const arrowCls = 'dd-arrow';
 
     rowsHTML += `<tr class="dd-turn-row" data-ddturn="${escapeHtml(String(t.turn))}" style="background:var(--surface2);cursor:pointer">
-      <td style="font-weight:600"><span class="${arrowCls}">▶</span> <b>${escapeHtml(turnLabel)}</b><span class="dd-call-count">${t.calls}</span>${summBadge}${userMsgPreview}</td>
+      <td style="font-weight:600"><span class="${arrowCls}">▶</span> <b>${escapeHtml(turnLabel)}</b>&nbsp;<span style="font-size:11px;font-weight:400;color:var(--text)">(${t.calls} calls)</span>${toolCountBadge}${agentCountBadge}${skillCountBadge}${instructionCountBadge}${summBadge}${userMsgPreview}</td>
       <td class="mono" style="font-size:11px">${fmtTs(t.firstTs, multiDay)}</td>
       <td class="mono" title="${escapeHtml(tokenTooltip)}">${fmt(t.inputTokens)}</td>
       <td class="mono">${fmt(t.outputTokens)}</td>
@@ -1038,6 +1163,45 @@ function renderDeepDiveTable(sessionId, data) {
         <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${typeHTML}</td>
       </tr>`;
     });
+
+    // Per-turn context strips (agents → skills → instructions → tools), shown when turn is expanded
+    function makeChipStrip(label, items) {
+      if (!items.length) { return ''; }
+      const groups = new Map();
+      for (const item of items) {
+        const name = typeof item === 'string' ? item : item.name;
+        const dur  = typeof item === 'object' && item.dur != null ? item.dur : null;
+        const customTip = typeof item === 'object' && item.tip != null ? item.tip : null;
+        const g = groups.get(name) || { count: 0, totalDur: 0, hasDur: false, tip: null };
+        g.count++;
+        if (dur != null) { g.totalDur += dur; g.hasDur = true; }
+        if (customTip != null && !g.tip) { g.tip = customTip; }
+        groups.set(name, g);
+      }
+      const chips = [...groups.entries()].map(([name, g]) => {
+        const badge = g.count > 1 ? ` <span class="dd-tool-chip-count">${g.count}</span>` : '';
+        let tip;
+        if (g.tip) { tip = g.tip; }
+        else if (g.hasDur) { tip = `${name} — ${g.count > 1 ? 'total ' : ''}${g.totalDur}ms`; }
+        else { tip = name; }
+        return `<span class="dd-tool-chip" title="${escapeHtml(tip)}">${escapeHtml(name)}${badge}</span>`;
+      }).join('');
+      return `<tr class="dd-tool-strip" data-ddturn="${escapeHtml(String(t.turn))}" style="display:none">
+        <td colspan="7"><div class="dd-tool-chips"><span class="dd-tool-label">${label}</span>${chips}</div></td>
+      </tr>`;
+    }
+    // Build skill chips: name as label, resolved path as tooltip
+    const skillChips = turnSkills.map(s => ({ name: s, tip: skillPaths[s] || s }));
+    // Build instruction chips from applied instruction files: file name as label, full path as tooltip
+    const instrChips = turnInstrFiles.map(fileName => {
+      const instructionKey = fileName.replace(/\.instructions\.md$/i, '');
+      const fullPath = instrPaths[instructionKey] || instrPaths[fileName] || '';
+      return { name: fileName, tip: fullPath || fileName };
+    });
+    rowsHTML += makeChipStrip('agents',       agentRefs);
+    rowsHTML += makeChipStrip('skills',       skillChips);
+    rowsHTML += makeChipStrip('instructions', instrChips);
+    rowsHTML += makeChipStrip('tools',        turnTools);
   }
 
   // Totals row
@@ -1053,9 +1217,14 @@ function renderDeepDiveTable(sessionId, data) {
     <td>—</td>
   </tr>`;
 
+  const totalToolCalls = turns.reduce((s, t) => s + (t.toolCalls ? t.toolCalls.length : 0), 0);
+  const totalAgentRefs = turns.reduce((s, t) => s + (t.agentRefs ? t.agentRefs.length : 0), 0);
+  const toolsLabel = totalToolCalls > 0 ? `, ${totalToolCalls} tool call${totalToolCalls !== 1 ? 's' : ''}` : '';
+  const agentsLabel = totalAgentRefs > 0 ? `, ${totalAgentRefs} agent invocation${totalAgentRefs !== 1 ? 's' : ''}` : '';
+
   return `<div class="dd-table-wrap">
     <div class="dd-toolbar">
-      <span style="font-size:13px;font-weight:600">Analysis — ${totals.turns} turn${totals.turns !== 1 ? 's' : ''}, ${totals.calls} call${totals.calls !== 1 ? 's' : ''}</span>
+      <span style="font-size:13px;font-weight:600">Analysis — ${totals.turns} turn${totals.turns !== 1 ? 's' : ''}, ${totals.calls} LLM call${totals.calls !== 1 ? 's' : ''}${toolsLabel}${agentsLabel}</span>
       <div class="dd-toolbar-actions">
         <button class="dd-toolbar-btn" data-dd-expand-all="${escapeHtml(sessionId)}">Expand all</button>
         <button class="dd-toolbar-btn" data-dd-collapse-all="${escapeHtml(sessionId)}">Collapse all</button>
@@ -1074,7 +1243,7 @@ function ddToggleTurn(tr, sessionId, turn) {
   const arrow = tr.querySelector('.dd-arrow');
   const isOpen = arrow && arrow.classList.contains('open');
   const turnStr = String(turn);
-  container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(row => {
+  container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"], .dd-tool-strip[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(row => {
     row.style.display = isOpen ? 'none' : '';
   });
   if (arrow) { arrow.classList.toggle('open', !isOpen); }
@@ -1083,14 +1252,14 @@ function ddToggleTurn(tr, sessionId, turn) {
 function ddExpandAll(sessionId, containerEl) {
   const container = containerEl || document.getElementById('deep-dive-' + sessionId);
   if (!container) { return; }
-  container.querySelectorAll('.dd-call-row').forEach(r => { r.style.display = ''; });
+  container.querySelectorAll('.dd-call-row, .dd-tool-strip').forEach(r => { r.style.display = ''; });
   container.querySelectorAll('.dd-arrow').forEach(a => { a.classList.add('open'); });
 }
 
 function ddCollapseAll(sessionId, containerEl) {
   const container = containerEl || document.getElementById('deep-dive-' + sessionId);
   if (!container) { return; }
-  container.querySelectorAll('.dd-call-row').forEach(r => { r.style.display = 'none'; });
+  container.querySelectorAll('.dd-call-row, .dd-tool-strip').forEach(r => { r.style.display = 'none'; });
   container.querySelectorAll('.dd-arrow').forEach(a => { a.classList.remove('open'); });
 }
 
@@ -1107,7 +1276,7 @@ function ddApplySort(sessionId, containerEl) {
       openTurns.add(tr.dataset.ddturn);
     }
   });
-  container.innerHTML = renderDeepDiveTable(sessionId, data);
+  container.innerHTML = renderDeepDiveTable(sessionId, data, _ddCtx[sessionId]);
   ddAttachHandlers(sessionId, container);
   // Restore open state
   container.querySelectorAll('.dd-turn-row').forEach(tr => {
@@ -1115,7 +1284,7 @@ function ddApplySort(sessionId, containerEl) {
       const arrow = tr.querySelector('.dd-arrow');
       if (arrow) { arrow.classList.add('open'); }
       const turnStr = tr.dataset.ddturn;
-      container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(r => {
+      container.querySelectorAll(`.dd-call-row[data-ddturn="${CSS.escape(turnStr)}"], .dd-tool-strip[data-ddturn="${CSS.escape(turnStr)}"]`).forEach(r => {
         r.style.display = '';
       });
     }
@@ -1139,6 +1308,22 @@ function ddAttachHandlers(sessionId, container) {
   const collapseBtn = container.querySelector(`button[data-dd-collapse-all="${CSS.escape(sessionId)}"]`);
   if (expandBtn) { expandBtn.addEventListener('click', (e) => { e.stopPropagation(); ddExpandAll(sessionId, container); }); }
   if (collapseBtn) { collapseBtn.addEventListener('click', (e) => { e.stopPropagation(); ddCollapseAll(sessionId, container); }); }
+}
+
+function _getCachedCtx(sessionId) {
+  if (_ddCtx[sessionId]) { return Promise.resolve(_ddCtx[sessionId]); }
+  const s = sessionsCache.find(x => x.id === sessionId);
+  if (s && s._ctx) { return Promise.resolve(s._ctx); }
+  if (s && s._analysis && s._analysis.context) {
+    s._ctx = s._analysis.context;
+    _ddCtx[sessionId] = s._ctx;
+    return Promise.resolve(s._ctx);
+  }
+  return rpc('getSessionContext', { sessionId }).then(ctx => {
+    if (s && ctx) { s._ctx = ctx; }
+    if (ctx) { _ddCtx[sessionId] = ctx; }
+    return ctx;
+  }).catch(() => null);
 }
 
 async function loadDeepDive(sessionId, triggerBtn) {
@@ -1168,6 +1353,7 @@ async function loadDeepDive(sessionId, triggerBtn) {
       btn.innerHTML = buttonLabel + (isVisible ? ' <span aria-hidden="true">↓</span>' : ' <span aria-hidden="true">↑</span>');
       btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
       btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
+      btn.classList.toggle('active', !isVisible);
     }
     if (!isVisible) { container.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
     return;
@@ -1185,20 +1371,44 @@ async function loadDeepDive(sessionId, triggerBtn) {
   container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   try {
-    const data = await rpc('getSessionDeepDive', { sessionId });
+    const [data, ctx] = await Promise.all([
+      rpc('getSessionDeepDive', { sessionId }),
+      _getCachedCtx(sessionId),
+    ]);
     _ddData[sessionId] = data;
+    _ddCtx[sessionId] = ctx;
     _ddSortState[sessionId] = { col: 'ts', dir: -1 };
 
     if (!data.turns || data.turns.length === 0) {
       container.innerHTML = '<div class="empty" style="padding:16px 0">No LLM calls found in this session.</div>';
     } else {
-      container.innerHTML = renderDeepDiveTable(sessionId, data);
+      container.innerHTML = renderDeepDiveTable(sessionId, data, ctx);
       ddAttachHandlers(sessionId, container);
     }
+    // Collapse button at the bottom
+    const collapseFooter = document.createElement('div');
+    collapseFooter.className = 'dd-collapse-footer';
+    collapseFooter.innerHTML = '<button class="btn btn-sm">↑ Collapse Analysis</button>';
+    collapseFooter.querySelector('button').addEventListener('click', () => {
+      container.style.display = 'none';
+      if (btn) {
+        btn.innerHTML = buttonLabel + ' <span aria-hidden="true">↓</span>';
+        btn.classList.remove('active');
+        const headerH = document.querySelector('header')?.offsetHeight || 0;
+        // Scroll to the session row in the All Sessions table if present, otherwise the btn
+        const sessionRow = document.querySelector(`tr[data-id="${CSS.escape(sessionId)}"]`);
+        const anchor = sessionRow || btn;
+        const rect = anchor.getBoundingClientRect();
+        const top = rect.top + window.scrollY - headerH - 8;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
+    });
+    container.appendChild(collapseFooter);
     container.dataset.ddLoaded = 'true';
     if (btn) {
       btn.innerHTML = buttonLabel + ' <span aria-hidden="true">↑</span>';
       btn.disabled = false;
+      btn.classList.add('active');
       btn.title = 'Deep dive analysis for all user turn requests and internal system calls';
       btn.setAttribute('aria-label', 'Deep dive analysis for all user turn requests and internal system calls');
     }
@@ -1230,6 +1440,7 @@ function switchView(view) {
 $$('.tab').forEach(tab => tab.addEventListener('click', () => switchView(tab.dataset.view)));
 
 $('#refresh-btn').addEventListener('click', () => switchView(currentView));
+
 $('#hours-select').addEventListener('change', () => {
   const isCustom = $('#hours-select').value === 'custom';
   const isMtd = $('#hours-select').value === 'mtd';

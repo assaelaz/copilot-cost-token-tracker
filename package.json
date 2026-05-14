@@ -2,10 +2,14 @@
   "name": "copilot-cost-token-tracker",
   "displayName": "Copilot Cost & Token Tracker",
   "description": "Visualise token costs for agent sessions in VS Code",
-  "version": "1.1.3",
+  "version": "1.1.5",
   "publisher": "netcomlabs-ai",
   "license": "MIT",
   "keywords": ["ai", "cost", "tokens", "dashboard", "sessions"],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
   "galleryBanner": {
     "color": "#0d1117",
     "theme": "dark"
@@ -22,6 +26,10 @@
       {
         "command": "copilotCost.openDashboard",
         "title": "Copilot Cost & Token Tracker: Open Dashboard"
+      },
+      {
+        "command": "copilotCost.resetUserId",
+        "title": "Copilot Cost & Token Tracker: Reset Anonymous User ID"
       }
     ],
     "viewsContainers": {

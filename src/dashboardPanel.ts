@@ -8,9 +8,11 @@ import * as path from "path";
 import * as fs from "fs";
 import {
   findAllSessions, findSessionById,
-  analyzeSession, analyzeAggregate, SessionAnalysis,
-  parseSessionDeepDive,
+  analyzeSession, analyzeSessionCost, analyzeAggregate, SessionAnalysis,
+  parseSessionContext, parseSessionDeepDive,
 } from "./sessionParser";
+import { resolveUserId } from "./userId";
+import { exportData } from "./dataExporter";
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined;
@@ -18,9 +20,10 @@ export class DashboardPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionPath: string;
+  private readonly context: vscode.ExtensionContext;
   private disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionPath: string) {
+  public static createOrShow(extensionPath: string, context: vscode.ExtensionContext) {
     const column = vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One;
 
     if (DashboardPanel.currentPanel) {
@@ -39,12 +42,13 @@ export class DashboardPanel {
       },
     );
 
-    DashboardPanel.currentPanel = new DashboardPanel(panel, extensionPath);
+    DashboardPanel.currentPanel = new DashboardPanel(panel, extensionPath, context);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionPath: string) {
+  private constructor(panel: vscode.WebviewPanel, extensionPath: string, context: vscode.ExtensionContext) {
     this.panel = panel;
     this.extensionPath = extensionPath;
+    this.context = context;
 
     this.panel.webview.html = this.getHtml(this.panel.webview);
 
@@ -126,6 +130,44 @@ export class DashboardPanel {
         }
         case "getPricingSource": {
           data = { source: "bundled pricing.json" };
+          break;
+        }
+        case "exportData": {
+          const userId = resolveUserId(this.context);
+          await exportData({
+            userId,
+            format: msg.format || 'csv',
+            fromTs: msg.from_ts,
+            toTs: msg.to_ts,
+            hours: msg.hours,
+          });
+          data = { ok: true };
+          break;
+        }
+        case "getSessionCost": {
+          const costResult = findSessionById(msg.sessionId);
+          if (!costResult) {
+            this.postMessage({ type: "error", requestId, error: "Session not found" });
+            return;
+          }
+          if ("_ambiguous" in costResult) {
+            this.postMessage({ type: "error", requestId, error: "Ambiguous session ID" });
+            return;
+          }
+          data = analyzeSessionCost(costResult as any);
+          break;
+        }
+        case "getSessionContext": {
+          const ctxResult = findSessionById(msg.sessionId);
+          if (!ctxResult) {
+            this.postMessage({ type: "error", requestId, error: "Session not found" });
+            return;
+          }
+          if ("_ambiguous" in ctxResult) {
+            this.postMessage({ type: "error", requestId, error: "Ambiguous session ID" });
+            return;
+          }
+          data = parseSessionContext((ctxResult as any).path);
           break;
         }
         case "getSessionDeepDive": {

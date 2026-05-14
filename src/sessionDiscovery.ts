@@ -54,6 +54,26 @@ function allWorkspaceStorageDirs(): string[] {
       }
     }
   }
+
+  // Also check .vscode-server paths used by Remote SSH / WSL extensions
+  if (process.platform !== "win32") {
+    for (const serverDir of [".vscode-server", ".vscode-server-insiders"]) {
+      const wsRoot = path.join(home, serverDir, "data", "User", "workspaceStorage");
+      if (fs.existsSync(wsRoot)) {
+        try {
+          for (const entry of fs.readdirSync(wsRoot, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+              const fullPath = path.join(wsRoot, entry.name);
+              if (!dirs.includes(fullPath)) {
+                dirs.push(fullPath);
+              }
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
   return dirs;
 }
 
@@ -188,13 +208,19 @@ export function getSessionTitle(sessionDir: string): string {
 function sessionLastTs(folder: string): number {
   const main = path.join(folder, "main.jsonl");
   if (!fs.existsSync(main)) { return 0; }
+  // Entry types that don't represent real user/model activity — VS Code writes these
+  // to all open sessions simultaneously (e.g. customization sweeps), causing every
+  // session to share the same last timestamp.
+  const NOISE_TYPES = new Set(["discovery", "turn_start", "turn_end", "session_start"]);
   try {
     let lastTs = 0;
     const content = fs.readFileSync(main, "utf-8");
     for (const line of content.split("\n")) {
       if (!line.trim()) { continue; }
       try {
-        const ts = JSON.parse(line).ts;
+        const entry = JSON.parse(line);
+        if (NOISE_TYPES.has(entry.type)) { continue; }
+        const ts = entry.ts;
         if (ts) { lastTs = ts; }
       } catch { /* ignore */ }
     }

@@ -61,8 +61,23 @@ export interface TurnRecord {
   lastTs: number | null;
   /** Individual call records */
   callRecords: CallRecord[];
+  /** Tool call records in this turn */
+  toolCalls: ToolCallRecord[];
+  /** Custom agent labels invoked in this turn (from child_session_ref) */
+  agentRefs: string[];
   /** First user message text for this turn, or null */
   userMessage: string | null;
+}
+
+export interface ToolCallRecord {
+  /** Tool name (e.g. "read_file", "run_in_terminal") */
+  name: string;
+  /** Wall-clock timestamp in ms since epoch, or null */
+  ts: number | null;
+  /** Duration in ms, or null */
+  dur: number | null;
+  /** Status string (e.g. "ok") */
+  status: string;
 }
 
 export interface SessionDeepDive {
@@ -79,7 +94,314 @@ export interface SessionDeepDive {
   };
 }
 
-interface ModelStats {
+export interface SessionContext {
+  /** Primary mode derived from debugName (e.g. "Agent", "Chat", "Edit") */
+  agentMode: string;
+  /** Custom agent names available in the session (from discovery) */
+  agents: string[];
+  /** Instruction file names loaded at session start */
+  instructions: string[];
+  /** Skill names available in the session (from Skill Discovery) */
+  skills: string[];
+  /** Slash commands available in the session (from Slash Commands Discovery) */
+  slashCommands: string[];
+  /** Skill names the model actually read (from read_file calls on skill files) */
+  skillsInvoked: string[];
+  /** Custom agents actually invoked as child sessions (label from child_session_ref) */
+  customAgentsInvoked: string[];
+  /** Resolved file paths for each skill (name → absolute path) */
+  skillPaths: Record<string, string>;
+  /** Resolved file paths for each slash command (name → absolute path) */
+  slashCommandPaths: Record<string, string>;
+  /** Resolved file paths for each agent (name → absolute path) */
+  agentPaths: Record<string, string>;
+  /** Resolved file paths for each instruction (name → absolute path) */
+  instructionPaths: Record<string, string>;
+  /** Turn number when each skill was first seen in discovery (1-based) */
+  skillsFirstTurn: Record<string, number>;
+  /** Turn number when each agent was first seen in discovery (1-based) */
+  agentsFirstTurn: Record<string, number>;
+  /** Turn number when each instruction was first seen in discovery (1-based) */
+  instructionsFirstTurn: Record<string, number>;
+  /** Skills actually used in each turn (derived from read_file calls on skill files) */
+  skillsByTurn: Record<string, string[]>;
+  /** Instructions applied to each turn (from Resolve Customizations) */
+  instructionsByTurn: Record<string, string[]>;
+}
+
+// ── Session context parsing ────────────────────────────────────────────
+
+/**
+ * Parse the available agents, instructions, skills, and active mode
+ * from a session's main.jsonl file.
+ */
+export function parseSessionContext(sessionDir: string): SessionContext {
+  const mainFile = path.join(sessionDir, "main.jsonl");
+  let agents: string[] = [];
+  let instructions: string[] = [];
+  let skills: string[] = [];
+  let slashCommands: string[] = [];
+  const skillsInvoked: string[] = [];
+  const debugNames = new Set<string>();
+  const customAgentsInvoked: string[] = [];
+
+  let agentFolders: string[] = [];
+  let skillFolders: string[] = [];
+  let slashCommandFolders: string[] = [];
+  let instructionFolders: string[] = [];
+
+  // Turn tracking (0-based; increments on user_message — aligned with parseSessionDeepDive)
+  let turnIdx = 0;
+  const seenAgents = new Set<string>();
+  const seenSkills = new Set<string>();
+  const seenInstructions = new Set<string>();
+  const seenSlashCommands = new Set<string>();
+  const agentsFirstTurn: Record<string, number> = {};
+  const skillsFirstTurn: Record<string, number> = {};
+  const instructionsFirstTurn: Record<string, number> = {};
+  const skillsByTurn: Record<string, string[]> = {};
+  const instructionsByTurn: Record<string, string[]> = {};
+  const readFilesByTurn: Record<string, string[]> = {};
+
+  const emptyCtx = (): SessionContext => ({
+    agentMode: "Agent", agents, instructions, skills, slashCommands, skillsInvoked, customAgentsInvoked,
+    skillPaths: {}, slashCommandPaths: {}, agentPaths: {}, instructionPaths: {},
+    skillsFirstTurn: {}, agentsFirstTurn: {}, instructionsFirstTurn: {},
+    skillsByTurn: {}, instructionsByTurn: {},
+  });
+
+  if (!fs.existsSync(mainFile)) { return emptyCtx(); }
+
+  let content = "";
+  try { content = fs.readFileSync(mainFile, "utf-8"); } catch { return emptyCtx(); }
+
+  let agentsSeen = false;
+  let instructionsSeen = false;
+  let skillsSeen = false;
+  let slashCommandsSeen = false;
+
+  for (const line of content.split("\n")) {
+    if (!line.trim()) { continue; }
+    let entry: any;
+    try { entry = JSON.parse(line); } catch { continue; }
+
+    const etype: string = entry.type || "";
+    const attrs = entry.attrs || {};
+
+    if (etype === "user_message") {
+      turnIdx++;
+    }
+
+    if (etype === "discovery") {
+      const details: string = attrs.details || "";
+
+      const foldersMatch = details.match(/\|\s*folders:\s*\[([^\]]+)\]/);
+      const folders = foldersMatch
+        ? foldersMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [];
+
+      // Agents
+      if (/Resolved \d+ agents/i.test(details)) {
+        const m = details.match(/\|\s*loaded:\s*\[([^\]]+)\]/);
+        const turnAgents = m ? m[1].split(",").map((s: string) => s.trim()).filter(Boolean) : [];
+        if (!agentsSeen && turnAgents.length > 0) {
+          agentsSeen = true;
+          agents = turnAgents;
+          agentFolders = folders;
+        }
+        for (const a of turnAgents) {
+          if (!seenAgents.has(a)) { seenAgents.add(a); agentsFirstTurn[a] = turnIdx; }
+        }
+      }
+
+      // Instructions
+      if (/Resolved \d+ instructions/i.test(details)) {
+        const m = details.match(/\|\s*loaded:\s*\[([^\]]+)\]/);
+        const turnInstrs = m ? m[1].split(",").map((s: string) => s.trim()).filter(Boolean) : [];
+        if (!instructionsSeen && turnInstrs.length > 0) {
+          instructionsSeen = true;
+          instructions = turnInstrs;
+          instructionFolders = folders;
+        }
+        for (const i of turnInstrs) {
+          if (!seenInstructions.has(i)) { seenInstructions.add(i); instructionsFirstTurn[i] = turnIdx; }
+        }
+      }
+
+      // Slash commands
+      if (/Resolved \d+ slash commands/i.test(details)) {
+        const m = details.match(/\|\s*loaded:\s*\[([^\]]+)\]/);
+        const turnSlashCommands = m ? m[1].split(",").map((s: string) => s.trim()).filter(Boolean) : [];
+        if (!slashCommandsSeen && turnSlashCommands.length > 0) {
+          slashCommandsSeen = true;
+          slashCommands = turnSlashCommands;
+          slashCommandFolders = folders;
+        }
+        for (const command of turnSlashCommands) {
+          if (!seenSlashCommands.has(command)) { seenSlashCommands.add(command); }
+        }
+      }
+
+      // Skills
+      if (/Resolved \d+ skills/i.test(details)) {
+        const m = details.match(/\|\s*loaded:\s*\[([^\]]+)\]/);
+        const turnSkills = m ? m[1].split(",").map((s: string) => s.trim()).filter(Boolean) : [];
+        if (!skillsSeen && turnSkills.length > 0) {
+          skillsSeen = true;
+          skills = turnSkills;
+          skillFolders = folders;
+        }
+        for (const s of turnSkills) {
+          if (!seenSkills.has(s)) { seenSkills.add(s); skillsFirstTurn[s] = turnIdx; }
+        }
+      }
+    }
+
+    if (etype === "generic" && entry.name === "Resolve Customizations" && entry.status === "ok") {
+      const details: string = attrs.details || "";
+      const turnKey = String(turnIdx);
+
+      let instructionMatch: RegExpExecArray | null;
+      const instructionRe = /\[applying\]\s+(.+?)\s+—/g;
+      while ((instructionMatch = instructionRe.exec(details)) !== null) {
+        _pushUniqueByTurn(instructionsByTurn, turnKey, instructionMatch[1].trim());
+      }
+    }
+
+    if (etype === "llm_request" && entry.status === "ok") {
+      const dn: string = attrs.debugName || "";
+      if (dn && !dn.toLowerCase().includes("summarize") && !dn.startsWith("retry-")) {
+        debugNames.add(dn);
+      }
+    }
+
+    if (etype === "tool_call") {
+      const turnKey = String(turnIdx);
+      const readFilePath = _extractReadFilePath(entry);
+      if (readFilePath) {
+        _pushUniqueByTurn(readFilesByTurn, turnKey, readFilePath);
+      }
+
+      // Backward-compatible capture when a skill appears as a tool name directly.
+      const toolName: string = entry.name || "";
+      if (toolName && skills.includes(toolName) && !skillsInvoked.includes(toolName)) {
+        skillsInvoked.push(toolName);
+      }
+    }
+
+    if (etype === "child_session_ref") {
+      const rawLabel: string = attrs.label || "";
+      // Strip "runSubagent-" prefix so the name matches the agents discovery list
+      const label = rawLabel.startsWith("runSubagent-") ? rawLabel.slice("runSubagent-".length) : rawLabel;
+      if (label && label !== "title" && !customAgentsInvoked.includes(label)) {
+        customAgentsInvoked.push(label);
+      }
+    }
+  }
+
+  // Derive human-readable mode from debugName
+  const agentMode = _debugNamesToMode(debugNames);
+
+  // Resolve file paths for each item
+  const skillPaths: Record<string, string> = {};
+  const slashCommandPaths: Record<string, string> = {};
+  const agentPaths: Record<string, string> = {};
+  const instructionPaths: Record<string, string> = {};
+  for (const s of skills) {
+    const p = _resolveFilePath(s, skillFolders);
+    if (p) { skillPaths[s] = p; }
+  }
+  for (const command of slashCommands) {
+    const p = _resolveFilePath(command, slashCommandFolders);
+    if (p) { slashCommandPaths[command] = p; }
+  }
+  for (const a of agents) {
+    const p = _resolveFilePath(a, agentFolders);
+    if (p) { agentPaths[a] = p; }
+  }
+  for (const i of instructions) {
+    const p = _resolveFilePath(i, instructionFolders);
+    if (p) { instructionPaths[i] = p; }
+  }
+
+  const skillPathToName = new Map<string, string>();
+  for (const [skillName, skillPath] of Object.entries(skillPaths)) {
+    skillPathToName.set(_normalizeSourcePath(skillPath), skillName);
+  }
+  for (const [turnKey, filePaths] of Object.entries(readFilesByTurn)) {
+    for (const filePath of filePaths) {
+      const skillName = skillPathToName.get(_normalizeSourcePath(filePath));
+      if (!skillName) { continue; }
+      _pushUniqueByTurn(skillsByTurn, turnKey, skillName);
+      if (!skillsInvoked.includes(skillName)) {
+        skillsInvoked.push(skillName);
+      }
+    }
+  }
+
+  return {
+    agentMode, agents, instructions, skills, slashCommands, skillsInvoked, customAgentsInvoked,
+    skillPaths, slashCommandPaths, agentPaths, instructionPaths,
+    skillsFirstTurn, agentsFirstTurn, instructionsFirstTurn,
+    skillsByTurn, instructionsByTurn,
+  };
+}
+
+function _extractReadFilePath(entry: any): string {
+  if (entry?.name !== "read_file") { return ""; }
+  const rawArgs = entry?.attrs?.args ?? entry?.attrs?.input ?? entry?.args;
+  if (!rawArgs || typeof rawArgs !== "string") { return ""; }
+  try {
+    const parsed = JSON.parse(rawArgs);
+    return typeof parsed?.filePath === "string" ? parsed.filePath : "";
+  } catch {
+    return "";
+  }
+}
+
+function _normalizeSourcePath(filePath: string): string {
+  return path.normalize(filePath).replace(/^\/([a-zA-Z]):\//i, "$1:/");
+}
+
+function _pushUniqueByTurn(map: Record<string, string[]>, turnKey: string, value: string): void {
+  if (!value) { return; }
+  if (!map[turnKey]) { map[turnKey] = []; }
+  if (!map[turnKey].includes(value)) {
+    map[turnKey].push(value);
+  }
+}
+
+/**
+ * Try to resolve an item name (skill/agent/instruction) to its source file path
+ * by scanning the folders from the discovery log entry.
+ */
+function _resolveFilePath(name: string, folders: string[]): string {
+  const exts = ['.md', '.prompt.md', '.agent.md', '.instructions.md'];
+  for (const rawFolder of folders) {
+    // Normalize Unix-style Windows absolute paths: /c:/... → c:/...
+    const folder = rawFolder.replace(/^\/([a-zA-Z]):\//i, '$1:/');
+    for (const ext of exts) {
+      const p = path.join(folder, name + ext);
+      if (fs.existsSync(p)) { return p; }
+    }
+    // Try {name}/SKILL.md (skill packaged in a subdirectory)
+    const subP = path.join(folder, name, 'SKILL.md');
+    if (fs.existsSync(subP)) { return subP; }
+  }
+  return '';
+}
+
+function _debugNamesToMode(names: Set<string>): string {
+  for (const dn of names) {
+    const lower = dn.toLowerCase();
+    if (lower.includes("editagent")) { return "Agent"; }
+    if (lower.includes("edit")) { return "Edit"; }
+    if (lower.includes("chat")) { return "Chat"; }
+  }
+  return "Agent"; // default
+}
+
+export interface ModelStats {
   calls: number;
   main_calls: number;
   subagent_calls: number;
@@ -136,6 +458,7 @@ export interface SessionAnalysis {
     cache_ratio: number;
     cost: number;
   };
+  context?: SessionContext;
 }
 
 // ── Parsing ────────────────────────────────────────────────────────────
@@ -333,6 +656,7 @@ function sessionToJson(s: SessionRecord) {
 export function analyzeSession(session: SessionRecord): SessionAnalysis {
   const stats = parseSession(session.path);
   const models = modelStatsToJson(stats);
+  const context = parseSessionContext(session.path);
   const valid = models.filter(m => !m.warning);
   const totalCost = valid.reduce((sum, m) => sum + m.cost, 0);
   const totalInput = valid.reduce((sum, m) => sum + m.input_tokens, 0);
@@ -343,6 +667,7 @@ export function analyzeSession(session: SessionRecord): SessionAnalysis {
   return {
     session: sessionToJson(session),
     models,
+    context,
     totals: {
       calls: totalCalls,
       input_tokens: totalInput,
@@ -350,6 +675,23 @@ export function analyzeSession(session: SessionRecord): SessionAnalysis {
       cached_tokens: totalCached,
       cache_ratio: totalInput ? Math.round(1000 * totalCached / totalInput) / 10 : 0,
       cost: Math.round(totalCost * 1_000_000) / 1_000_000,
+    },
+  };
+}
+
+/** Lightweight cost-only analysis — no context parsing. Used for bulk table loading. */
+export function analyzeSessionCost(session: SessionRecord): { id: string; totals: { cost: number; cache_ratio: number } } {
+  const stats = parseSession(session.path);
+  const models = modelStatsToJson(stats);
+  const valid = models.filter(m => !m.warning);
+  const totalCost = valid.reduce((sum, m) => sum + m.cost, 0);
+  const totalInput = valid.reduce((sum, m) => sum + m.input_tokens, 0);
+  const totalCached = valid.reduce((sum, m) => sum + m.cached_tokens, 0);
+  return {
+    id: session.id,
+    totals: {
+      cost: Math.round(totalCost * 1_000_000) / 1_000_000,
+      cache_ratio: totalInput ? Math.round(1000 * totalCached / totalInput) / 10 : 0,
     },
   };
 }
@@ -443,6 +785,8 @@ export function parseSessionDeepDive(sessionDir: string): SessionDeepDive {
         firstTs: null,
         lastTs: null,
         callRecords: [],
+        toolCalls: [],
+        agentRefs: [],
         userMessage: null,
       });
     }
@@ -464,6 +808,31 @@ export function parseSessionDeepDive(sessionDir: string): SessionDeepDive {
         if (!turn.userMessage) {
           turn.userMessage = userText.length > 300 ? userText.slice(0, 297) + "…" : userText;
         }
+      }
+      return;
+    }
+
+    if (etype === "tool_call") {
+      const toolName: string = entry.name || "";
+      if (toolName) {
+        const turn = ensureTurn(turnId);
+        const toolTs: number | null = entry.ts != null ? Number(entry.ts) : null;
+        const toolDur: number | null = entry.dur != null ? Number(entry.dur) : null;
+        turn.toolCalls.push({ name: toolName, ts: toolTs, dur: toolDur, status: entry.status || "" });
+        if (toolTs != null) {
+          if (turn.firstTs === null || toolTs < turn.firstTs) { turn.firstTs = toolTs; }
+          if (turn.lastTs === null || toolTs > turn.lastTs) { turn.lastTs = toolTs; }
+        }
+      }
+      return;
+    }
+
+    if (etype === "child_session_ref" && !isSubagent) {
+      const rawLabel: string = entry.attrs?.label || "";
+      const label = rawLabel.startsWith("runSubagent-") ? rawLabel.slice("runSubagent-".length) : rawLabel;
+      if (label && label !== "title") {
+        const turn = ensureTurn(turnId);
+        if (!turn.agentRefs.includes(label)) { turn.agentRefs.push(label); }
       }
       return;
     }
